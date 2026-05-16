@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { X, Camera, Mic, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
 import api from '../services/api';
 import { categoriesForType } from '../constants/categories';
+import { useToast } from '../context/ToastContext';
+import { useNotifications } from '../context/NotificationContext';
+import { formatCurrency } from '../utils/format';
 
 function todayInputValue() {
   const d = new Date();
@@ -12,6 +15,8 @@ function todayInputValue() {
 }
 
 export default function NewEntryModal({ open, onClose, onSaved }) {
+  const { showToast } = useToast();
+  const { addNotification } = useNotifications();
   const [type, setType] = useState('expense');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('Housing');
@@ -34,12 +39,27 @@ export default function NewEntryModal({ open, onClose, onSaved }) {
     }
     setLoading(true);
     try {
-      await api.post('/api/transactions', {
+      const { data } = await api.post('/api/transactions', {
         type,
         amount: num,
         category,
         date: new Date(date).toISOString(),
         notes,
+      });
+      const id = data?._id ? `lumina_tx_saved_${data._id}` : `lumina_tx_saved_${Date.now()}`;
+      const kind = type === 'income' ? 'Income' : 'Expense';
+      const detail = `${formatCurrency(data?.amount ?? num)} · ${category} (${kind})`;
+      const message = `${detail}. This entry has been added to your transactions history.`;
+      addNotification({
+        id,
+        variant: 'info',
+        title: 'Transaction saved',
+        message,
+      });
+      showToast({
+        variant: 'info',
+        title: 'Transaction saved',
+        message: 'This entry has been added to your transactions history.',
       });
       onSaved?.();
       onClose();

@@ -29,6 +29,7 @@ app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/transactions", require("./routes/transactionRoutes"));
 app.use("/api/budgets", require("./routes/budgetRoutes"));
 app.use("/api/dashboard", require("./routes/dashboardRoutes"));
+app.use("/api/ai", require("./routes/aiRoutes"));
 
 if (process.env.NODE_ENV === "production") {
   const dist = path.join(__dirname, "../frontend/dist");

@@ -5,6 +5,7 @@ import {
   PieChart,
   LogOut,
   Plus,
+  Sparkles,
 } from 'lucide-react';
 
 export default function Sidebar({ onNewEntry, onSignOut }) {
@@ -46,6 +47,10 @@ export default function Sidebar({ onNewEntry, onSignOut }) {
         <NavLink to="/budget" className={linkClass}>
           <PieChart className="h-5 w-5 shrink-0 opacity-80" />
           Budget
+        </NavLink>
+        <NavLink to="/ask-ai" className={linkClass}>
+          <Sparkles className="h-5 w-5 shrink-0 opacity-80" />
+          Ask AI
         </NavLink>
       </nav>
 

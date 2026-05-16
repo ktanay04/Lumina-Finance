@@ -44,10 +44,13 @@ const getDashboardData = async (req, res) => {
 
     const lineChartData = buckets.map(({ month, income, expense }) => ({ month, income, expense }));
 
+    let insightKey = 'on_track';
     let insights = 'Your spending is on track. Keep it up!';
     if (totalExpense > totalIncome && totalIncome > 0) {
+      insightKey = 'overspending';
       insights = 'Warning: You are spending more than you earn this period.';
     } else if (totalIncome === 0 && totalExpense > 0) {
+      insightKey = 'no_income';
       insights = 'Add income entries to see a fuller picture of your cash flow.';
     }
 
@@ -58,6 +61,7 @@ const getDashboardData = async (req, res) => {
       pieChartData,
       lineChartData,
       insights,
+      insightKey,
     });
   } catch (err) {
     console.error(err);

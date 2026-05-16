@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Outlet, useNavigate } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
 import NewEntryModal from './NewEntryModal';
@@ -9,6 +9,7 @@ import { useNotifications } from '../context/NotificationContext';
 import api from '../services/api';
 import { formatYearMonth } from '../utils/month';
 import { notifyBudgetThresholds } from '../utils/budgetNotifications';
+import { notifyDashboardInsights } from '../utils/dashboardInsightNotifications';
 
 export default function Layout() {
   const [newEntryOpen, setNewEntryOpen] = useState(false);
@@ -17,6 +18,8 @@ export default function Layout() {
   const { showToast } = useToast();
   const { addNotification } = useNotifications();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const isAskAi = pathname === '/ask-ai';
 
   const bump = useCallback(() => setDataVersion((v) => v + 1), []);
 
@@ -31,6 +34,19 @@ export default function Layout() {
         notifyBudgetThresholds({
           items: data.items || [],
           month: ym,
+          userId: user._id,
+          showToast,
+          addNotification,
+        });
+      } catch {
+        /* ignore */
+      }
+      try {
+        const { data: dash } = await api.get('/api/dashboard');
+        if (cancelled) return;
+        notifyDashboardInsights({
+          insightKey: dash.insightKey,
+          insights: dash.insights,
           userId: user._id,
           showToast,
           addNotification,
@@ -55,9 +71,15 @@ export default function Layout() {
         onNewEntry={() => setNewEntryOpen(true)}
         onSignOut={handleSignOut}
       />
-      <div className="flex min-h-screen flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col">
         <TopBar />
-        <main className="flex-1 overflow-auto p-8">
+        <main
+          className={`flex-1 p-8 ${
+            isAskAi
+              ? 'flex min-h-0 flex-col overflow-hidden'
+              : 'overflow-auto'
+          }`}
+        >
           <Outlet context={{ dataVersion, bump }} />
         </main>
       </div>

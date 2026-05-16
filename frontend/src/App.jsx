@@ -9,6 +9,7 @@ import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
 import TransactionsPage from './pages/TransactionsPage';
 import BudgetPage from './pages/BudgetPage';
+import AskAiPage from './pages/AskAiPage';
 
 export default function App() {
   return (
@@ -29,6 +30,7 @@ export default function App() {
               <Route path="/" element={<DashboardPage />} />
               <Route path="/transactions" element={<TransactionsPage />} />
               <Route path="/budget" element={<BudgetPage />} />
+              <Route path="/ask-ai" element={<AskAiPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
