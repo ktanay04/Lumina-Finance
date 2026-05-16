@@ -15,15 +15,27 @@ const getDashboardData = async (req, res) => {
     const balance = totalIncome - totalExpense;
 
     const expenseByCategory = {};
+    const pieByMonth = {};
     for (const t of userTx) {
       if (t.type === 'expense') {
         expenseByCategory[t.category] = (expenseByCategory[t.category] || 0) + t.amount;
+
+        const d = new Date(t.date);
+        const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        if (!pieByMonth[monthKey]) pieByMonth[monthKey] = {};
+        pieByMonth[monthKey][t.category] = (pieByMonth[monthKey][t.category] || 0) + t.amount;
       }
     }
     const pieChartData = Object.entries(expenseByCategory).map(([name, value]) => ({
       name,
       value,
     }));
+    const pieChartDataByMonth = Object.fromEntries(
+      Object.entries(pieByMonth).map(([month, categories]) => [
+        month,
+        Object.entries(categories).map(([name, value]) => ({ name, value })),
+      ]),
+    );
 
     const now = new Date();
     const buckets = [];
@@ -54,11 +66,15 @@ const getDashboardData = async (req, res) => {
       insights = 'Add income entries to see a fuller picture of your cash flow.';
     }
 
+    const monthOptions = buckets.map(({ key, month }) => ({ key, month }));
+
     res.json({
       balance,
       totalIncome,
       totalExpense,
       pieChartData,
+      pieChartDataByMonth,
+      monthOptions,
       lineChartData,
       insights,
       insightKey,

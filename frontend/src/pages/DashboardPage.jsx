@@ -45,6 +45,13 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [selectedMonth, setSelectedMonth] = useState('');
+
+  useEffect(() => {
+    if (data?.monthOptions?.length) {
+      setSelectedMonth(data.monthOptions[data.monthOptions.length - 1].key);
+    }
+  }, [data?.monthOptions]);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,10 +75,13 @@ export default function DashboardPage() {
     return <p className="text-zinc-400">Loading your dashboard…</p>;
   }
 
-  const pieEmpty = !data?.pieChartData?.length;
+  const selectedPieData = selectedMonth
+    ? data?.pieChartDataByMonth?.[selectedMonth] ?? []
+    : data?.pieChartData ?? [];
+  const pieEmpty = !selectedPieData?.length;
   const lineEmpty = !data?.lineChartData?.some((x) => x.income > 0 || x.expense > 0);
   const pieSlices =
-    data?.pieChartData?.map((item, i) => ({
+    selectedPieData?.map((item, i) => ({
       ...item,
       fill: CHART_COLORS[i % CHART_COLORS.length],
     })) ?? [];
@@ -148,7 +158,25 @@ export default function DashboardPage() {
         </div>
 
         <div className="rounded-2xl border border-white/5 bg-surface-card p-6">
-          <h2 className="text-lg font-semibold text-white">Expense Breakdown</h2>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-lg font-semibold text-white">Expense Breakdown</h2>
+            <div className="flex items-center gap-3">
+              <label className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                Month
+              </label>
+              <select
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="rounded-xl border border-white/10 bg-zinc-950 px-3 py-2 text-sm text-white outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20"
+              >
+                {data?.monthOptions?.map((option) => (
+                  <option key={option.key} value={option.key}>
+                    {option.month}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
           <div className="mt-4 h-72">
             {pieEmpty ? (
               <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-white/10 text-center text-sm text-zinc-500">

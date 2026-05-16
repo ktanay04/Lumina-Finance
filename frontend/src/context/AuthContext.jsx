@@ -5,6 +5,10 @@ const AuthContext = createContext(null);
 
 const STORAGE_KEY = 'lumina_user';
 
+function saveAuthState(user, token) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ user, token }));
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(null);
@@ -29,11 +33,24 @@ export function AuthProvider({ children }) {
 
   const login = (payload) => {
     const { token: t, ...rest } = payload;
-    const u = { _id: rest._id, name: rest.name, email: rest.email };
+    const u = {
+      _id: rest._id,
+      name: rest.name,
+      email: rest.email,
+      photo: rest.photo || null,
+    };
     setToken(t);
     setUser(u);
     setAuthToken(t);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ user: u, token: t }));
+    saveAuthState(u, t);
+  };
+
+  const updateUser = (updates) => {
+    setUser((current) => {
+      const next = { ...current, ...updates };
+      saveAuthState(next, token);
+      return next;
+    });
   };
 
   const logout = () => {
@@ -51,6 +68,7 @@ export function AuthProvider({ children }) {
       isAuthenticated: Boolean(token && user),
       login,
       logout,
+      updateUser,
     }),
     [user, token, ready]
   );

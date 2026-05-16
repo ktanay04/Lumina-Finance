@@ -125,8 +125,18 @@ export default function TopBar() {
               {user?.name || 'User'}
             </p>
           </div>
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-600 text-sm font-bold text-white">
-            {initial}
+          <div className="flex h-10 w-10 shrink-0 overflow-hidden rounded-full bg-violet-600 text-sm font-bold text-white">
+            {user?.photo ? (
+              <img
+                src={user.photo}
+                alt={`${user.name}'s profile`}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <span className="flex h-full w-full items-center justify-center text-sm font-bold text-white">
+                {initial}
+              </span>
+            )}
           </div>
         </button>
       </div>

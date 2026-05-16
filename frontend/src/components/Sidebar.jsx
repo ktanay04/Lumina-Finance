@@ -20,7 +20,7 @@ export default function Sidebar({ onNewEntry, onSignOut }) {
     <aside className="flex w-64 flex-col border-r border-white/5 bg-surface-card/80 px-4 py-6">
       <div className="mb-8 flex items-center gap-2 px-2">
         <img src="/favicon.svg" alt="" className="h-9 w-9 rounded-lg" />
-        <span className="text-lg font-semibold tracking-tight text-white">Lumina.</span>
+        <span className="text-lg font-semibold tracking-tight text-white">Lumina Finance</span>
       </div>
 
       <button
