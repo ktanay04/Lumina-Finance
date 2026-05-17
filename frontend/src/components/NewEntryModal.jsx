@@ -92,7 +92,7 @@ export default function NewEntryModal({ open, onClose, onSaved }) {
     const explicit = lower.match(/(?:rupees|rs\.?|₹)\s*([0-9]+(?:\.[0-9]{1,2})?)/);
     if (explicit) return parseFloat(explicit[1]);
 
-    const actionBased = lower.match(/(?:paid|spent|cost|worth|gave|bought)\s+([0-9]+(?:\.[0-9]{1,2})?)/);
+    const actionBased = lower.match(/(?:paid|spent|cost|worth|gave|bought|received|got|earned|earned|deposited|credited|income)\s+([0-9]+(?:\.[0-9]{1,2})?)/);
     if (actionBased) return parseFloat(actionBased[1]);
 
     const trailing = lower.match(/([0-9]+(?:\.[0-9]{1,2})?)\s*(?:rupees|rs\.?|₹)/);
@@ -101,9 +101,24 @@ export default function NewEntryModal({ open, onClose, onSaved }) {
     return null;
   };
 
+  const parseVoiceType = (text) => {
+    const lower = text.toLowerCase();
+    const incomeKeywords = ['received', 'got', 'earned', 'salary', 'bonus', 'income', 'credit', 'deposited', 'paid me', 'pay me'];
+    const expenseKeywords = ['paid', 'spent', 'cost', 'worth', 'gave', 'bought', 'paid for', 'fee', 'rent', 'bill'];
+
+    if (incomeKeywords.some((keyword) => lower.includes(keyword))) {
+      return 'income';
+    }
+    if (expenseKeywords.some((keyword) => lower.includes(keyword))) {
+      return 'expense';
+    }
+    return null;
+  };
+
   const mapCategory = (text) => {
     const lower = text.toLowerCase();
     const categoryKeywords = {
+      Salary: ['salary', 'pay', 'payslip', 'bonus', 'income', 'credited', 'received'],
       Housing: ['housing', 'house', 'rent', 'home'],
       Transportation: ['transport', 'taxi', 'bus', 'train', 'uber', 'ola', 'auto', 'fuel', 'petrol', 'cab', 'flight', 'ticket'],
       Food: ['food', 'restaurant', 'grocery', 'groceries', 'meal', 'lunch', 'dinner', 'breakfast', 'coffee', 'snack', 'cafe'],
@@ -130,13 +145,15 @@ export default function NewEntryModal({ open, onClose, onSaved }) {
     const amount = parseVoiceAmount(lower);
     const category = mapCategory(lower);
     const date = parseVoiceDate(text);
+    const type = parseVoiceType(lower) || 'expense';
 
-    const notes = text.replace(/(paid|spent|cost|for|on|today|yesterday|rupees|rs\.?|₹)/gi, '').trim();
+    const notes = text.replace(/(paid|spent|cost|for|on|today|yesterday|rupees|rs\.?|₹|received|got|earned|salary|bonus|income|deposited|credited)/gi, '').trim();
 
     return {
       amount,
       category,
       date,
+      type,
       notes: notes || text,
     };
   };
@@ -170,16 +187,20 @@ export default function NewEntryModal({ open, onClose, onSaved }) {
         setTranscript(spoken);
         const extracted = parseVoiceText(spoken);
 
-        if (!extracted.amount || !extracted.category || !extracted.date) {
+        if (!extracted.amount || !extracted.date) {
           setVoiceError(
-            'Please specify amount, category, and date. Example: "Paid 650 rupees for groceries on October 12th."'
+            'Please specify amount and date. Example: "Paid 650 rupees for groceries on October 12th."'
           );
           setVoiceActive(false);
           return;
         }
 
+        if (extracted.type) {
+          setType(extracted.type);
+        }
+
         setAmount(extracted.amount.toString());
-        setCategory(extracted.category);
+        setCategory(extracted.category || (extracted.type === 'income' ? 'Salary' : 'Miscellaneous'));
         setDate(extracted.date);
         setNotes(extracted.notes);
         setVoiceActive(false);
