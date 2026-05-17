@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { X, Camera, Mic, ArrowDownCircle, ArrowUpCircle, Upload, Trash2 } from 'lucide-react';
 import api from '../services/api';
 import { categoriesForType } from '../constants/categories';
@@ -18,6 +18,7 @@ export default function NewEntryModal({ open, onClose, onSaved }) {
   const { showToast } = useToast();
   const { addNotification } = useNotifications();
   const fileInputRef = useRef(null);
+  const recognitionRef = useRef(null);
   const [type, setType] = useState('expense');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('Housing');
@@ -28,8 +29,208 @@ export default function NewEntryModal({ open, onClose, onSaved }) {
   const [scanLoading, setScanLoading] = useState(false);
   const [uploadedImage, setUploadedImage] = useState(null);
   const [scannedData, setScannedData] = useState(null);
+  const [voiceActive, setVoiceActive] = useState(false);
+  const [voiceError, setVoiceError] = useState('');
+  const [transcript, setTranscript] = useState('');
+  const [voiceSupported, setVoiceSupported] = useState(false);
 
   const cats = categoriesForType(type);
+
+  const parseVoiceDate = (text) => {
+    const lower = text.toLowerCase();
+    const today = new Date();
+
+    if (lower.includes('today')) {
+      return today.toISOString().slice(0, 10);
+    }
+    if (lower.includes('yesterday')) {
+      const yesterday = new Date();
+      yesterday.setDate(today.getDate() - 1);
+      return yesterday.toISOString().slice(0, 10);
+    }
+
+    const monthMap = {
+      january: '01', jan: '01', february: '02', feb: '02', march: '03', mar: '03',
+      april: '04', apr: '04', may: '05', june: '06', jun: '06', july: '07', jul: '07',
+      august: '08', aug: '08', september: '09', sep: '09', october: '10', oct: '10',
+      november: '11', nov: '11', december: '12', dec: '12',
+    };
+
+    const explicitMonthDay = lower.match(/(?:on\s+)?(\d{1,2})(?:st|nd|rd|th)?\s+(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)(?:\s+(\d{4}))?/i);
+    const explicitDayMonth = lower.match(/(?:on\s+)?(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s+(\d{4}))?/i);
+    const slashMatch = lower.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+
+    if (explicitMonthDay) {
+      const day = String(explicitMonthDay[1]).padStart(2, '0');
+      const monthKey = explicitMonthDay[2].toLowerCase();
+      const month = monthMap[monthKey] || '01';
+      const year = explicitMonthDay[3] || today.getFullYear();
+      return `${year}-${month}-${day}`;
+    }
+
+    if (explicitDayMonth) {
+      const day = String(explicitDayMonth[2]).padStart(2, '0');
+      const monthKey = explicitDayMonth[1].toLowerCase();
+      const month = monthMap[monthKey] || '01';
+      const year = explicitDayMonth[3] || today.getFullYear();
+      return `${year}-${month}-${day}`;
+    }
+
+    if (slashMatch) {
+      const [_, part1, part2, yearRaw] = slashMatch;
+      const day = part1.padStart(2, '0');
+      const month = part2.padStart(2, '0');
+      const year = yearRaw.length === 2 ? `20${yearRaw}` : yearRaw;
+      return `${year}-${month}-${day}`;
+    }
+
+    return null;
+  };
+
+  const parseVoiceAmount = (text) => {
+    const lower = text.toLowerCase();
+    const explicit = lower.match(/(?:rupees|rs\.?|₹)\s*([0-9]+(?:\.[0-9]{1,2})?)/);
+    if (explicit) return parseFloat(explicit[1]);
+
+    const actionBased = lower.match(/(?:paid|spent|cost|worth|gave|bought)\s+([0-9]+(?:\.[0-9]{1,2})?)/);
+    if (actionBased) return parseFloat(actionBased[1]);
+
+    const trailing = lower.match(/([0-9]+(?:\.[0-9]{1,2})?)\s*(?:rupees|rs\.?|₹)/);
+    if (trailing) return parseFloat(trailing[1]);
+
+    return null;
+  };
+
+  const mapCategory = (text) => {
+    const lower = text.toLowerCase();
+    const categoryKeywords = {
+      Housing: ['housing', 'house', 'rent', 'home'],
+      Transportation: ['transport', 'taxi', 'bus', 'train', 'uber', 'ola', 'auto', 'fuel', 'petrol', 'cab', 'flight', 'ticket'],
+      Food: ['food', 'restaurant', 'grocery', 'groceries', 'meal', 'lunch', 'dinner', 'breakfast', 'coffee', 'snack', 'cafe'],
+      Utilities: ['utility', 'utilities', 'electricity', 'water', 'internet', 'phone', 'bill'],
+      Insurance: ['insurance', 'premium'],
+      Medical: ['medical', 'doctor', 'health', 'pharmacy', 'medicine', 'hospital', 'clinic'],
+      'Saving & Investing': ['saving', 'investing', 'investment', 'deposit'],
+      'Personal Spending': ['personal', 'shopping', 'clothes', 'gift', 'fashion', 'cosmetic', 'accessory', 'spa', 'hair'],
+      Entertainment: ['entertainment', 'movie', 'cinema', 'concert', 'game', 'netflix', 'music', 'theatre'],
+      Miscellaneous: ['misc', 'other', 'random'],
+    };
+
+    for (const [cat, keywords] of Object.entries(categoryKeywords)) {
+      if (keywords.some((keyword) => lower.includes(keyword))) {
+        return cat;
+      }
+    }
+
+    return null;
+  };
+
+  const parseVoiceText = (text) => {
+    const lower = text.toLowerCase();
+    const amount = parseVoiceAmount(lower);
+    const category = mapCategory(lower);
+    const date = parseVoiceDate(text);
+
+    const notes = text.replace(/(paid|spent|cost|for|on|today|yesterday|rupees|rs\.?|₹)/gi, '').trim();
+
+    return {
+      amount,
+      category,
+      date,
+      notes: notes || text,
+    };
+  };
+
+  useEffect(() => {
+    const supported = typeof window !== 'undefined' && !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+    setVoiceSupported(supported);
+
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.onresult = null;
+        recognitionRef.current.onerror = null;
+        recognitionRef.current.onend = null;
+        recognitionRef.current.stop?.();
+      }
+    };
+  }, []);
+
+  const getRecognition = () => {
+    if (!recognitionRef.current) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) return null;
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'en-IN';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+      recognition.continuous = false;
+
+      recognition.onresult = (event) => {
+        const spoken = event.results?.[0]?.[0]?.transcript || '';
+        setTranscript(spoken);
+        const extracted = parseVoiceText(spoken);
+
+        if (!extracted.amount || !extracted.category || !extracted.date) {
+          setVoiceError(
+            'Please specify amount, category, and date. Example: "Paid 650 rupees for groceries on October 12th."'
+          );
+          setVoiceActive(false);
+          return;
+        }
+
+        setAmount(extracted.amount.toString());
+        setCategory(extracted.category);
+        setDate(extracted.date);
+        setNotes(extracted.notes);
+        setVoiceActive(false);
+        showToast({
+          variant: 'info',
+          title: 'Voice input captured',
+          message: 'Voice entry parsed. Review the extracted transaction details before saving.',
+        });
+      };
+
+      recognition.onerror = (event) => {
+        setVoiceError(`Voice input error: ${event.error || 'unknown error'}`);
+        setVoiceActive(false);
+      };
+
+      recognition.onend = () => {
+        setVoiceActive(false);
+      };
+
+      recognitionRef.current = recognition;
+    }
+    return recognitionRef.current;
+  };
+
+  const handleVoiceToggle = () => {
+    setVoiceError('');
+    if (!voiceSupported) {
+      setVoiceError('Voice input is not supported in this browser.');
+      return;
+    }
+
+    const recognition = getRecognition();
+    if (!recognition) {
+      setVoiceError('Unable to initialize voice recognition.');
+      return;
+    }
+
+    if (voiceActive) {
+      recognition.stop();
+      return;
+    }
+
+    setTranscript('');
+    setVoiceActive(true);
+    try {
+      recognition.start();
+    } catch (err) {
+      setVoiceError('Could not start voice input. Please try again.');
+      setVoiceActive(false);
+    }
+  };
 
   if (!open) return null;
 
@@ -284,12 +485,16 @@ export default function NewEntryModal({ open, onClose, onSaved }) {
           </button>
           <button
             type="button"
-            disabled
-            title="Coming soon"
-            className="flex items-center justify-center gap-2 rounded-xl border border-emerald-500/40 py-3 text-sm font-medium text-emerald-300 opacity-60"
+            onClick={handleVoiceToggle}
+            title="Record transaction details with your voice"
+            className={`flex items-center justify-center gap-2 rounded-xl border py-3 text-sm font-medium transition ${
+              voiceActive
+                ? 'border-emerald-400 bg-emerald-500/10 text-emerald-300'
+                : 'border-emerald-500/40 text-emerald-300 hover:border-emerald-500/60 hover:bg-emerald-500/10'
+            } ${voiceError ? 'ring-2 ring-red-500/40' : ''}`}
           >
             <Mic className="h-4 w-4" />
-            Voice Input
+            {voiceActive ? 'Listening…' : 'Voice Input'}
           </button>
         </div>
 
@@ -301,6 +506,30 @@ export default function NewEntryModal({ open, onClose, onSaved }) {
           className="hidden"
           disabled={scanLoading}
         />
+
+        {voiceSupported ? (
+          <div className="mb-4 rounded-xl border border-white/10 bg-surface-raised p-4 text-sm text-zinc-300">
+            <p className="mb-2 font-semibold text-white">Voice entry instructions</p>
+            <p>Start speaking to add a transaction. Include:</p>
+            <ul className="ml-4 list-disc space-y-1 text-zinc-400">
+              <li>the amount</li>
+              <li>the category</li>
+              <li>the date</li>
+            </ul>
+            <p className="mt-2 text-zinc-400">Example: “Paid 650 rupees for groceries on October 12th.”</p>
+          </div>
+        ) : (
+          <p className="mb-4 text-sm text-zinc-500">Voice input is not supported in this browser.</p>
+        )}
+
+        {transcript && (
+          <div className="mb-4 rounded-xl border border-white/10 bg-surface-raised p-3 text-sm text-zinc-300">
+            <p className="font-semibold text-white">Transcript</p>
+            <p>{transcript}</p>
+          </div>
+        )}
+
+        {voiceError && <p className="mb-4 text-sm text-red-400">{voiceError}</p>}
 
         {uploadedImage && (
           <div className="mb-6 rounded-xl border border-white/10 bg-surface-raised p-3">
