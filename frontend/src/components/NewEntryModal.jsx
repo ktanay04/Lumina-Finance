@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { X, Camera, Mic, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { X, Camera, Mic, ArrowDownCircle, ArrowUpCircle, Upload, Trash2 } from 'lucide-react';
 import api from '../services/api';
 import { categoriesForType } from '../constants/categories';
 import { useToast } from '../context/ToastContext';
@@ -17,6 +17,7 @@ function todayInputValue() {
 export default function NewEntryModal({ open, onClose, onSaved }) {
   const { showToast } = useToast();
   const { addNotification } = useNotifications();
+  const fileInputRef = useRef(null);
   const [type, setType] = useState('expense');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('Housing');
@@ -24,10 +25,185 @@ export default function NewEntryModal({ open, onClose, onSaved }) {
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [scanLoading, setScanLoading] = useState(false);
+  const [uploadedImage, setUploadedImage] = useState(null);
+  const [scannedData, setScannedData] = useState(null);
 
   const cats = categoriesForType(type);
 
   if (!open) return null;
+
+  const compressImage = (base64String, callback) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      // Max dimensions
+      let { width, height } = img;
+      const maxWidth = 800;
+      const maxHeight = 800;
+      
+      if (width > height) {
+        if (width > maxWidth) {
+          height = (height * maxWidth) / width;
+          width = maxWidth;
+        }
+      } else {
+        if (height > maxHeight) {
+          width = (width * maxHeight) / height;
+          height = maxHeight;
+        }
+      }
+      
+      canvas.width = width;
+      canvas.height = height;
+      ctx.drawImage(img, 0, 0, width, height);
+      
+      // Compress to JPEG with quality 0.7
+      callback(canvas.toDataURL('image/jpeg', 0.7));
+    };
+    img.src = base64String;
+  };
+
+  const handleFileSelect = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setError('Please upload an image file');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const originalBase64 = event.target?.result;
+      
+      // Compress image to reduce token usage
+      compressImage(originalBase64, async (compressedBase64) => {
+        const base64 = compressedBase64.split(',')[1];
+        if (!base64) {
+          setError('Failed to process image');
+          return;
+        }
+
+        setUploadedImage(originalBase64);
+        setScanLoading(true);
+        setError('');
+
+        try {
+          const { data } = await api.post('/api/ai/scan-receipt', { imageBase64: base64 });
+
+          // Validate and extract data
+          const extractedAmount = parseFloat(data.amount);
+          const extractedCategory = data.category;
+          const extractedDate = data.date;
+
+          if (!isNaN(extractedAmount) && extractedAmount > 0) {
+            setAmount(extractedAmount.toString());
+          }
+
+          // Normalize category name to match available categories
+          const normalizedCategory = normalizeCategoryName(extractedCategory);
+          if (cats.includes(normalizedCategory)) {
+            setCategory(normalizedCategory);
+          } else {
+            // Try to find a close match
+            const closeMatch = findClosestCategory(extractedCategory, cats);
+            if (closeMatch) {
+              setCategory(closeMatch);
+            }
+          }
+
+          if (extractedDate) {
+            setDate(extractedDate);
+          }
+
+          if (data.merchant) {
+            setNotes(data.merchant);
+          }
+
+          setScannedData(data);
+          showToast({
+            variant: 'success',
+            title: 'Receipt scanned',
+            message: 'Receipt details have been extracted. Please review and adjust as needed.',
+          });
+        } catch (err) {
+          const errorMsg = err.response?.data?.message || 'Failed to scan receipt. Please try again.';
+          setError(errorMsg);
+          showToast({
+            variant: 'error',
+            title: 'Scan failed',
+            message: errorMsg,
+          });
+        } finally {
+          setScanLoading(false);
+        }
+      });
+    };
+    reader.readAsDataURL(file);
+
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const normalizeCategoryName = (categoryName) => {
+    if (!categoryName) return 'Miscellaneous';
+    const lower = categoryName.toLowerCase().trim();
+
+    // Direct mapping to actual categories
+    const categoryMap = {
+      food: 'Food',
+      groceries: 'Food',
+      restaurants: 'Food',
+      transport: 'Transportation',
+      transportation: 'Transportation',
+      taxi: 'Transportation',
+      fuel: 'Transportation',
+      car: 'Transportation',
+      gas: 'Transportation',
+      entertainment: 'Entertainment',
+      movies: 'Entertainment',
+      music: 'Entertainment',
+      shopping: 'Personal Spending',
+      healthcare: 'Medical',
+      medical: 'Medical',
+      doctor: 'Medical',
+      pharmacy: 'Medical',
+      utilities: 'Utilities',
+      electricity: 'Utilities',
+      water: 'Utilities',
+      internet: 'Utilities',
+      housing: 'Housing',
+      rent: 'Housing',
+      insurance: 'Insurance',
+      saving: 'Saving & Investing',
+      investing: 'Saving & Investing',
+      investment: 'Saving & Investing',
+      miscellaneous: 'Miscellaneous',
+    };
+
+    return categoryMap[lower] || 'Miscellaneous';
+  };
+
+  const findClosestCategory = (scannedCategory, availableCategories) => {
+    const lowerScanned = (scannedCategory || '').toLowerCase();
+    for (const cat of availableCategories) {
+      if (lowerScanned.includes(cat.toLowerCase()) || cat.toLowerCase().includes(lowerScanned)) {
+        return cat;
+      }
+    }
+    return null;
+  };
+
+  const handleRemoveImage = () => {
+    setUploadedImage(null);
+    setScannedData(null);
+    setError('');
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -68,6 +244,8 @@ export default function NewEntryModal({ open, onClose, onSaved }) {
       setType('expense');
       setCategory('Housing');
       setDate(todayInputValue());
+      setUploadedImage(null);
+      setScannedData(null);
     } catch (err) {
       setError(err.response?.data?.message || 'Could not save transaction');
     } finally {
@@ -96,12 +274,13 @@ export default function NewEntryModal({ open, onClose, onSaved }) {
         <div className="mb-6 grid grid-cols-2 gap-3">
           <button
             type="button"
-            disabled
-            title="Coming soon"
-            className="flex items-center justify-center gap-2 rounded-xl border border-violet-500/40 py-3 text-sm font-medium text-violet-300 opacity-60"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={scanLoading}
+            title="Scan receipt with AI"
+            className="flex items-center justify-center gap-2 rounded-xl border border-violet-500/40 py-3 text-sm font-medium text-violet-300 transition hover:border-violet-500/60 hover:bg-violet-500/10 disabled:opacity-50"
           >
             <Camera className="h-4 w-4" />
-            Scan Receipt
+            {scanLoading ? 'Scanning…' : 'Scan Receipt'}
           </button>
           <button
             type="button"
@@ -113,6 +292,52 @@ export default function NewEntryModal({ open, onClose, onSaved }) {
             Voice Input
           </button>
         </div>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handleFileSelect}
+          className="hidden"
+          disabled={scanLoading}
+        />
+
+        {uploadedImage && (
+          <div className="mb-6 rounded-xl border border-white/10 bg-surface-raised p-3">
+            <div className="flex items-start justify-between">
+              <img
+                src={uploadedImage}
+                alt="Receipt preview"
+                className="h-20 w-20 rounded-lg object-cover"
+              />
+              <button
+                type="button"
+                onClick={handleRemoveImage}
+                className="rounded-full p-1.5 text-zinc-400 transition hover:bg-red-500/20 hover:text-red-400"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+            {scannedData && (
+              <div className="mt-2 space-y-1 text-xs text-zinc-400">
+                <p>
+                  <span className="text-zinc-300">Amount:</span> ₹{scannedData.amount}
+                </p>
+                <p>
+                  <span className="text-zinc-300">Category:</span> {scannedData.category}
+                </p>
+                <p>
+                  <span className="text-zinc-300">Date:</span> {scannedData.date}
+                </p>
+                {scannedData.merchant && (
+                  <p>
+                    <span className="text-zinc-300">Merchant:</span> {scannedData.merchant}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="grid grid-cols-2 gap-2 rounded-xl bg-surface-raised p-1">

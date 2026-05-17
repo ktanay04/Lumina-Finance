@@ -201,4 +201,108 @@ const chatWithSarvam = async (req, res) => {
   }
 };
 
-module.exports = { chatWithSarvam, getLatestConversation };
+const scanReceipt = async (req, res) => {
+  try {
+    const apiKey = process.env.SARVAM_API_KEY;
+    if (!apiKey) {
+      return res.status(503).json({
+        message: 'AI is not configured. Add SARVAM_API_KEY to your project root .env file.',
+      });
+    }
+
+    const { imageBase64 } = req.body;
+    if (!imageBase64 || typeof imageBase64 !== 'string') {
+      return res.status(400).json({ message: 'imageBase64 is required' });
+    }
+
+    const model = process.env.SARVAM_MODEL || 'sarvam-30b';
+
+    const scanPrompt = `Scan receipt and respond ONLY with JSON (no explanation):
+{"amount": 99.99, "category": "Food", "date": "2024-01-15", "merchant": "Store Name"}
+Image: data:image/jpeg;base64,${imageBase64}`;
+
+    const messages = [
+      {
+        role: 'user',
+        content: scanPrompt,
+      },
+    ];
+
+    const upstream = await fetch(SARVAM_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: 0.1,
+        max_tokens: 500,
+      }),
+    });
+
+    const data = await upstream.json().catch(() => ({}));
+
+    if (!upstream.ok) {
+      const detail = data?.error?.message || upstream.statusText || 'Upstream request failed';
+      console.error('Sarvam receipt scan error', upstream.status, data);
+      return res.status(502).json({ message: detail });
+    }
+
+    console.log('Sarvam response:', JSON.stringify(data, null, 2));
+
+    let text = data?.choices?.[0]?.message?.content;
+    
+    // Fallback to reasoning_content if content is null
+    if (!text && data?.choices?.[0]?.message?.reasoning_content) {
+      text = data?.choices?.[0]?.message?.reasoning_content;
+    }
+
+    if (typeof text !== 'string' || !text.trim()) {
+      console.error('Invalid response structure. Got:', data);
+      return res.status(502).json({ 
+        message: 'Unexpected response from AI provider',
+        debug: `Got response structure: ${JSON.stringify(data).slice(0, 200)}` 
+      });
+    }
+
+    try {
+      // Extract JSON from the response
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        console.error('No JSON found in response:', text.slice(0, 500));
+        throw new Error('No JSON found in response');
+      }
+      const parsed = JSON.parse(jsonMatch[0]);
+
+      // Validate extracted data
+      if (!parsed.amount || typeof parsed.amount !== 'number') {
+        return res.status(400).json({ message: 'Could not extract valid amount from receipt' });
+      }
+      if (!parsed.category || typeof parsed.category !== 'string') {
+        return res.status(400).json({ message: 'Could not extract category from receipt' });
+      }
+      if (!parsed.date) {
+        // Use today's date if not found
+        const today = new Date();
+        parsed.date = today.toISOString().split('T')[0];
+      }
+
+      return res.json({
+        amount: parsed.amount,
+        category: parsed.category,
+        date: parsed.date,
+        merchant: parsed.merchant || '',
+      });
+    } catch (parseErr) {
+      console.error('Failed to parse receipt scan response:', text.slice(0, 500), parseErr);
+      return res.status(502).json({ message: 'Failed to parse receipt data' });
+    }
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+};
+
+module.exports = { chatWithSarvam, getLatestConversation, scanReceipt };
